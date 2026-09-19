@@ -29,6 +29,11 @@ pub struct Cli {
     /// Command to run upon compositor startup.
     #[arg(last = true)]
     pub command: Vec<OsString>,
+    /// Start an always-on PipeWire screencast of primary display
+    /// When no `node` is given, it uses the default niri node name
+    #[cfg(feature = "xdp-gnome-screencast")]
+    #[arg(long, value_name = "node", num_args = 0..=1, default_missing_value = "")]
+    pub pipewire: Option<String>,
 
     #[command(subcommand)]
     pub subcommand: Option<Sub>,

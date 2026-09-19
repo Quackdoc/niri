@@ -41,6 +41,9 @@ pub struct Screencasting {
 
     // Drop PipeWire last, and specifically after casts, to prevent a double-free (yay).
     pub pipewire: Option<PipeWire>,
+
+    /// Optional `node.name` from `--pipewire` to set for the PipeWire node.
+    pub pipewire_node_name: Option<String>,
 }
 
 /// A screencast request that hasn't been started yet.
@@ -71,17 +74,20 @@ impl Screencasting {
             mapped_cast_output: HashMap::new(),
             dynamic_cast_id_for_portal: MappedId::next(),
             pipewire: None,
+            pipewire_node_name: None,
         }
     }
 }
 
 impl State {
-    fn prepare_pw_cast(&mut self) -> anyhow::Result<Option<(GbmDevice<DeviceFd>, FormatSet)>> {
+    pub fn prepare_pw_cast(&mut self) -> anyhow::Result<Option<(GbmDevice<DeviceFd>, FormatSet)>> {
         // Ensure PipeWire is initialized.
         if self.niri.casting.pipewire.is_none() {
+            let node_name = self.niri.casting.pipewire_node_name.clone();
             let pw = PipeWire::new(
                 self.niri.event_loop.clone(),
                 self.niri.casting.pw_to_niri.clone(),
+                node_name,
             )
             .context("error initializing PipeWire")?;
             self.niri.casting.pipewire = Some(pw);
@@ -366,7 +372,7 @@ impl State {
                 refresh,
                 alpha,
                 pending.cursor_mode,
-                pending.signal_ctx,
+                Some(pending.signal_ctx),
             );
             match res {
                 Ok(mut cast) => {
@@ -451,7 +457,7 @@ impl State {
                     refresh,
                     alpha,
                     cursor_mode,
-                    signal_ctx,
+                    Some(signal_ctx),
                 );
                 match res {
                     Ok(cast) => {
@@ -787,7 +793,7 @@ impl Niri {
     }
 }
 
-fn cast_params_for_output(output: &Output) -> (Size<i32, Physical>, u32) {
+pub fn cast_params_for_output(output: &Output) -> (Size<i32, Physical>, u32) {
     let mode = output.current_mode().unwrap();
     let transform = output.current_transform();
     let size = transform.transform_size(mode.size);

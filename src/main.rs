@@ -194,6 +194,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .unwrap();
 
+
+    #[cfg(feature = "xdp-gnome-screencast")]
+    if let Some(name) = cli.pipewire {
+        if !name.is_empty() {
+            state.niri.casting.pipewire_node_name = Some(name);
+        }
+
+        let already = state.niri.casting.pipewire.is_some();
+        let gbm = match state.prepare_pw_cast() {
+            Ok(gbm) => gbm,
+            Err(err) => {
+                warn!("error initializing PipeWire via --pipewire: {err:?}");
+                None
+            }
+        };
+        if !already && state.niri.casting.pipewire.is_some() {
+            info!(
+                "PipeWire initialized eagerly via --pipewire (node.name={:?})",
+                state.niri.casting.pipewire_node_name
+            );
+        }
+
+        // Start always-on stream for primary output.
+        if state.niri.casting.pipewire.is_some() && state.niri.casting.casts.is_empty() {
+            let output = state
+                .niri
+                .layout
+                .active_output()
+                .cloned()
+                .or_else(|| state.niri.global_space.outputs().next().cloned())
+                .or_else(|| state.niri.sorted_outputs.first().cloned());
+
+            if let Some(output) = output {
+                let (size, refresh) =
+                    niri::screencasting::cast_params_for_output(&output);
+                let pw = state.niri.casting.pipewire.as_ref().unwrap();
+                let target = niri::niri::CastTarget::output(&output);
+                let session_id = niri::utils::CastSessionId::next();
+                let stream_id = niri::utils::CastStreamId::next();
+                match pw.start_cast(
+                    gbm,
+                    session_id,
+                    stream_id,
+                    target,
+                    size,
+                    refresh,
+                    false,
+                    niri::dbus::mutter_screen_cast::CursorMode::Embedded,
+                    None,
+                ) {
+                    Ok(cast) => {
+                        info!(
+                            "started always-on PipeWire cast for output {} (node.name={:?})",
+                            output.name(),
+                            state.niri.casting.pipewire_node_name
+                        );
+                        state.niri.casting.casts.push(cast);
+                    }
+                    Err(err) => warn!("error starting always-on PipeWire cast: {err:?}"),
+                }
+            }
+        }
+    }
+
     // Set WAYLAND_DISPLAY for children.
     let socket_name = state.niri.socket_name.as_deref().unwrap();
     env::set_var("WAYLAND_DISPLAY", socket_name);

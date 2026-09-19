@@ -84,6 +84,8 @@ pub struct PipeWire {
     pub token: RegistrationToken,
     event_loop: LoopHandle<'static, State>,
     to_niri: calloop::channel::Sender<PwToNiri>,
+    /// `node.name` for PipeWire streams (`--pipewire` value or default).
+    pub node_name: String,
 }
 
 pub enum PwToNiri {
@@ -351,7 +353,9 @@ impl PipeWire {
     pub fn new(
         event_loop: LoopHandle<'static, State>,
         to_niri: calloop::channel::Sender<PwToNiri>,
+        node_name: Option<String>,
     ) -> anyhow::Result<Self> {
+        let node_name = node_name.unwrap_or_else(|| "niri-screen-cast-src".to_string());
         let main_loop = MainLoopRc::new(None).context("error creating MainLoop")?;
         let context = ContextRc::new(&main_loop, None).context("error creating Context")?;
         let core = context.connect_rc(None).context("error creating Core")?;
@@ -393,6 +397,7 @@ impl PipeWire {
             token,
             event_loop,
             to_niri,
+            node_name,
         })
     }
 
@@ -407,7 +412,7 @@ impl PipeWire {
         refresh: u32,
         alpha: bool,
         mut cursor_mode: CursorMode,
-        signal_ctx: SignalEmitter<'static>,
+        signal_ctx: Option<SignalEmitter<'static>>,
     ) -> anyhow::Result<Cast> {
         let _span = tracy_client::span!("PipeWire::start_cast");
         let _span = debug_span!("start_cast", %session_id).entered();
@@ -428,7 +433,7 @@ impl PipeWire {
 
         let stream = StreamRc::new(
             self.core.clone(),
-            "niri-screen-cast-src",
+            &self.node_name,
             PropertiesBox::new(),
         )
         .context("error creating Stream")?;
@@ -478,13 +483,14 @@ impl PipeWire {
                                 if inner.node_id.is_none() {
                                     let id = stream.node_id();
                                     inner.node_id = Some(id);
+                                    if let Some(ctx) = &signal_ctx {
                                     debug!("sending signal with {id}");
 
                                     let _span = tracy_client::span!("sending PipeWireStreamAdded");
                                     async_io::block_on(async {
                                         let res =
                                             mutter_screen_cast::Stream::pipe_wire_stream_added(
-                                                &signal_ctx,
+                                                ctx,
                                                 id,
                                             )
                                             .await;
@@ -494,6 +500,9 @@ impl PipeWire {
                                             stop_cast();
                                         }
                                     });
+                                    } else {
+                                        debug!("always-on PipeWire node ready with id {id}");
+                                    }
                                 }
 
                                 inner.is_active = false;
